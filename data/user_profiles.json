@@ -1,0 +1,134 @@
+[
+  {
+    "id": "u001",
+    "name": "文艺慢逛型",
+    "city": "成都",
+    "budget_per_day": 260,
+    "preferred_tags": ["书店", "茶馆", "安静", "文艺", "建筑", "慢逛"],
+    "disliked_tags": ["深夜", "排队", "热闹"],
+    "favorite_categories": ["culture", "cafe", "attraction"],
+    "dietary_restrictions": [],
+    "pace": "relaxed",
+    "time_preference": "afternoon",
+    "feature_weights": {
+      "taste": 0.55,
+      "photo": 0.7,
+      "queue_risk": 0.25,
+      "cost_performance": 0.5,
+      "quiet": 0.9,
+      "indoor": 0.65,
+      "family_friendly": 0.3,
+      "night_view": 0.45
+    }
+  },
+  {
+    "id": "u002",
+    "name": "亲子轻松型",
+    "city": "成都",
+    "budget_per_day": 320,
+    "preferred_tags": ["亲子", "室内", "雨天友好", "短停留", "公园"],
+    "disliked_tags": ["酒吧", "深夜", "排队"],
+    "favorite_categories": ["shopping", "attraction", "leisure"],
+    "dietary_restrictions": ["少辣"],
+    "pace": "relaxed",
+    "time_preference": "all_day",
+    "feature_weights": {
+      "taste": 0.45,
+      "photo": 0.55,
+      "queue_risk": 0.2,
+      "cost_performance": 0.65,
+      "quiet": 0.55,
+      "indoor": 0.82,
+      "family_friendly": 0.95,
+      "night_view": 0.35
+    }
+  },
+  {
+    "id": "u003",
+    "name": "拍照打卡型",
+    "city": "成都",
+    "budget_per_day": 380,
+    "preferred_tags": ["拍照", "夜景", "城市地标", "建筑", "屋顶"],
+    "disliked_tags": ["安静", "纯购物"],
+    "favorite_categories": ["attraction", "shopping", "leisure"],
+    "dietary_restrictions": [],
+    "pace": "normal",
+    "time_preference": "evening",
+    "feature_weights": {
+      "taste": 0.35,
+      "photo": 0.98,
+      "queue_risk": 0.35,
+      "cost_performance": 0.45,
+      "quiet": 0.25,
+      "indoor": 0.45,
+      "family_friendly": 0.25,
+      "night_view": 0.88
+    }
+  },
+  {
+    "id": "u004",
+    "name": "夜游朋友局",
+    "city": "成都",
+    "budget_per_day": 450,
+    "preferred_tags": ["夜景", "夜宵", "酒吧", "音乐", "朋友", "热闹"],
+    "disliked_tags": ["早起", "亲子", "安静"],
+    "favorite_categories": ["nightlife", "food", "leisure"],
+    "dietary_restrictions": [],
+    "pace": "normal",
+    "time_preference": "night",
+    "feature_weights": {
+      "taste": 0.72,
+      "photo": 0.68,
+      "queue_risk": 0.45,
+      "cost_performance": 0.52,
+      "quiet": 0.08,
+      "indoor": 0.55,
+      "family_friendly": 0.05,
+      "night_view": 0.96
+    }
+  },
+  {
+    "id": "u005",
+    "name": "本地美食优先",
+    "city": "成都",
+    "budget_per_day": 300,
+    "preferred_tags": ["火锅", "串串", "小吃", "本地味道", "麻辣", "性价比"],
+    "disliked_tags": ["纯购物", "酒店", "清淡"],
+    "favorite_categories": ["food"],
+    "dietary_restrictions": [],
+    "pace": "tight",
+    "time_preference": "evening",
+    "feature_weights": {
+      "taste": 0.98,
+      "photo": 0.35,
+      "queue_risk": 0.4,
+      "cost_performance": 0.85,
+      "quiet": 0.2,
+      "indoor": 0.55,
+      "family_friendly": 0.35,
+      "night_view": 0.35
+    }
+  },
+  {
+    "id": "u006",
+    "name": "文化家庭游",
+    "city": "成都",
+    "budget_per_day": 360,
+    "preferred_tags": ["文化", "历史", "亲子", "公园", "茶馆", "室内"],
+    "disliked_tags": ["深夜", "酒吧", "高噪音"],
+    "favorite_categories": ["culture", "attraction", "cafe"],
+    "dietary_restrictions": ["少辣"],
+    "pace": "normal",
+    "time_preference": "morning",
+    "feature_weights": {
+      "taste": 0.5,
+      "photo": 0.62,
+      "queue_risk": 0.28,
+      "cost_performance": 0.7,
+      "quiet": 0.7,
+      "indoor": 0.62,
+      "family_friendly": 0.9,
+      "night_view": 0.28
+    }
+  }
+]
