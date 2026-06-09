@@ -87,7 +87,11 @@ def generate_explanation(routes: list[dict[str, Any]], intent: dict[str, Any] | 
     """
 
     intent_data = _to_dict(intent)
-    explanation = _template_explain(routes, intent_data)
+    try:
+        explanation = _llm_explain(routes, intent_data)
+    except Exception as exc:
+        logger.warning("LLM explanation failed, falling back to template: %s", exc)
+        explanation = _template_explain(routes, intent_data)
     return explanation + "\n\n【完整路线明细】\n" + _full_route_details(routes)
 
 

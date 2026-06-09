@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from utils.geo import haversine_distance
 
+from core.agent import plan_with_agent, plan_with_agent_stream, replan_with_agent, replan_with_agent_stream
 from core.explanation import generate_explanation, generate_explanation_stream
 from core.intent_parser import parse_user_intent
 from core.poi_artifact_store import PoiStore, load_poi_store
@@ -30,6 +32,15 @@ BASE_DIR = Path(__file__).resolve().parent
 
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
+
+# Mount static files and serve frontend
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    """Serve the frontend."""
+    return FileResponse(str(BASE_DIR / "static" / "index.html"))
 
 
 def _sse_event(event: str, data: Any) -> str:
@@ -174,210 +185,52 @@ def get_enriched_pois(city: str = "") -> list[dict[str, Any]]:
 
 @app.post("/plan")
 def plan_route(request: PlanRequest) -> dict[str, Any]:
-    """Create route plans from a user query."""
+    """Create route plans from a user query via LangChain Agent."""
 
     t0 = time.time()
-    intent = parse_user_intent(request.query)
-    city = str(intent.get("city") or "").strip()
-
-    scope_levels = ["zone", "nearby", "district", "all"]
-    data = None
-    candidate_pois: list[dict[str, Any]] = []
-    user_profile: dict[str, Any] | None = None
-    start_location = resolve_start_location(intent.get("start_location"))
-    for level in scope_levels:
-        scope_key = _resolve_scope_key(intent, level=level)
-        data = _load_city_data(city, scope_key=scope_key)
-        user_profile = get_user_profile(data.user_profiles, request.user_id)
-        candidate_pois = retrieve_candidate_pois(intent, user_profile, data.pois, limit=40)
-        if len(candidate_pois) >= 12 or scope_key == "__all__":
-            break
-    routes = generate_routes(
-        start_location=start_location,
-        candidate_pois=candidate_pois,
-        intent=intent,
-        user_profile=user_profile,
-        top_k=3,
-        beam_size=8,
-        max_steps=5,
-    )
-    explanation = generate_explanation(routes, intent)
-    elapsed = round(time.time() - t0, 2)
-
-    return {
-        "intent": intent,
-        "routes": routes,
-        "explanation": explanation,
-        "elapsed": elapsed,
-        "meta": {
-            "user_id": request.user_id,
-            "poi_count": len(data.pois),
-            "user_profile_count": len(data.user_profiles),
-            "candidate_count": len(candidate_pois),
-        },
-    }
+    result = plan_with_agent(request.query, user_id=request.user_id)
+    result.setdefault("elapsed", round(time.time() - t0, 2))
+    result.setdefault("meta", {})["user_id"] = request.user_id
+    return result
 
 
 @app.post("/plan/stream")
 def plan_route_stream(request: PlanRequest) -> StreamingResponse:
-    """Create route plans with streaming SSE output."""
+    """Create route plans with streaming SSE output via LangChain Agent."""
 
     def event_stream() -> Generator[str, None, None]:
-        t0 = time.time()
-
-        yield _sse_event("progress", {"status": "正在解析意图..."})
-        intent = parse_user_intent(request.query)
-        city = str(intent.get("city") or "").strip()
-        yield _sse_event("intent", intent)
-
-        yield _sse_event("progress", {"status": "正在加载数据..."})
-        scope_levels = ["zone", "nearby", "district", "all"]
-        data = None
-        candidate_pois: list[dict[str, Any]] = []
-        user_profile: dict[str, Any] | None = None
-        start_location = resolve_start_location(intent.get("start_location"))
-
-        yield _sse_event("progress", {"status": "正在检索候选地点..."})
-        for level in scope_levels:
-            scope_key = _resolve_scope_key(intent, level=level)
-            data = _load_city_data(city, scope_key=scope_key)
-            user_profile = get_user_profile(data.user_profiles, request.user_id)
-            candidate_pois = retrieve_candidate_pois(intent, user_profile, data.pois, limit=40)
-            if len(candidate_pois) >= 12 or scope_key == "__all__":
-                break
-
-        yield _sse_event("progress", {"status": "正在规划路线..."})
-        routes = generate_routes(
-            start_location=start_location,
-            candidate_pois=candidate_pois,
-            intent=intent,
-            user_profile=user_profile,
-            top_k=3,
-            beam_size=8,
-            max_steps=5,
-        )
-        yield _sse_event("routes", routes)
-
-        yield _sse_event("progress", {"status": "正在生成路线解释..."})
-        for chunk in generate_explanation_stream(routes, intent):
-            yield _sse_event("explanation_chunk", {"text": chunk})
-
-        elapsed = round(time.time() - t0, 2)
-        yield _sse_event("done", {
-            "elapsed": elapsed,
-            "meta": {
-                "user_id": request.user_id,
-                "poi_count": len(data.pois),
-                "user_profile_count": len(data.user_profiles),
-                "candidate_count": len(candidate_pois),
-            },
-        })
+        for event in plan_with_agent_stream(request.query, user_id=request.user_id):
+            yield _sse_event(event["event"], event["data"])
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.post("/replan")
 def replan(request: ReplanRequest) -> dict[str, Any]:
-    """Regenerate route plans from prior intent and user feedback."""
+    """Regenerate route plans from prior intent and user feedback via LangChain Agent."""
 
     t0 = time.time()
-    updated_intent, changes = understand_replan_intent(request.previous_intent, request.feedback)
-    city = str(updated_intent.get("city") or "").strip()
-
-    scope_levels = ["zone", "nearby", "district", "all"]
-    data = None
-    user_profile: dict[str, Any] | None = None
-    result: dict[str, Any] | None = None
-    for level in scope_levels:
-        scope_key = _resolve_scope_key(updated_intent, level=level)
-        data = _load_city_data(city, scope_key=scope_key)
-        user_profile = get_user_profile(data.user_profiles, request.user_id)
-        result = replan_route_for_intent(
-            updated_intent=updated_intent,
-            user_profile=user_profile,
-            pois=data.pois,
-            changes=changes,
-        )
-        if result.get("candidate_count", 0) >= 12 or scope_key == "__all__":
-            break
-
-    updated_intent = result["updated_intent"]
-    routes = result["routes"]
-    explanation = generate_explanation(routes, updated_intent)
-    elapsed = round(time.time() - t0, 2)
-
-    return {
-        "intent": updated_intent,
-        "routes": routes,
-        "explanation": explanation,
-        "elapsed": elapsed,
-        "changes": result.get("changes", []),
-        "warnings": result.get("warnings", []),
-        "meta": {
-            "user_id": request.user_id,
-            "poi_count": len(data.pois),
-            "user_profile_count": len(data.user_profiles),
-            "candidate_count": result.get("candidate_count", 0),
-        },
-    }
+    result = replan_with_agent(
+        previous_intent=request.previous_intent,
+        feedback=request.feedback,
+        user_id=request.user_id,
+    )
+    result.setdefault("elapsed", round(time.time() - t0, 2))
+    result.setdefault("meta", {})["user_id"] = request.user_id
+    return result
 
 
 @app.post("/replan/stream")
 def replan_stream(request: ReplanRequest) -> StreamingResponse:
-    """Regenerate route plans with streaming SSE output."""
+    """Regenerate route plans with streaming SSE output via LangChain Agent."""
 
     def event_stream() -> Generator[str, None, None]:
-        t0 = time.time()
-
-        yield _sse_event("progress", {"status": "正在理解反馈..."})
-        updated_intent, changes = understand_replan_intent(request.previous_intent, request.feedback)
-        city = str(updated_intent.get("city") or "").strip()
-        yield _sse_event("intent", updated_intent)
-
-        yield _sse_event("progress", {"status": "正在加载数据..."})
-        scope_levels = ["zone", "nearby", "district", "all"]
-        data = None
-        user_profile: dict[str, Any] | None = None
-        result: dict[str, Any] | None = None
-
-        yield _sse_event("progress", {"status": "正在重新规划路线..."})
-        for level in scope_levels:
-            scope_key = _resolve_scope_key(updated_intent, level=level)
-            data = _load_city_data(city, scope_key=scope_key)
-            user_profile = get_user_profile(data.user_profiles, request.user_id)
-            result = replan_route_for_intent(
-                updated_intent=updated_intent,
-                user_profile=user_profile,
-                pois=data.pois,
-                changes=changes,
-            )
-            if result.get("candidate_count", 0) >= 12 or scope_key == "__all__":
-                break
-
-        updated_intent = result["updated_intent"]
-        routes = result["routes"]
-
-        yield _sse_event("routes", routes)
-
-        if result.get("changes"):
-            yield _sse_event("changes", result["changes"])
-        if result.get("warnings"):
-            yield _sse_event("warnings", result["warnings"])
-
-        yield _sse_event("progress", {"status": "正在生成路线解释..."})
-        for chunk in generate_explanation_stream(routes, updated_intent):
-            yield _sse_event("explanation_chunk", {"text": chunk})
-
-        elapsed = round(time.time() - t0, 2)
-        yield _sse_event("done", {
-            "elapsed": elapsed,
-            "meta": {
-                "user_id": request.user_id,
-                "poi_count": len(data.pois),
-                "user_profile_count": len(data.user_profiles),
-                "candidate_count": result.get("candidate_count", 0),
-            },
-        })
+        for event in replan_with_agent_stream(
+            previous_intent=request.previous_intent,
+            feedback=request.feedback,
+            user_id=request.user_id,
+        ):
+            yield _sse_event(event["event"], event["data"])
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

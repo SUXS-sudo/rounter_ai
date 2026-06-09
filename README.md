@@ -1,15 +1,16 @@
 # MiMo 智能路线规划系统
 
-基于小米 MiMo 大模型 API 的智能路线规划系统。系统利用 MiMo LLM 进行自然语言意图解析、智能路线规划和自然语言解释生成，结合本地 POI 数据库提供精准的多城市出行方案。
+基于 LangGraph 多智能体 + MiMo 大模型的智能路线规划系统。系统采用 **Supervisor 多 Agent 协同架构**，由 Supervisor 主管 Agent 协调 IntentAgent（意图分析）、PlanningAgent（路线规划）、ExplanationAgent（解释生成）三个专业子 Agent 协同完成路线规划全流程。
 
 支持城市：北京、上海、广州、深圳、成都、杭州、武汉、西安、重庆、南京、天津、苏州、长沙、青岛、郑州、厦门、昆明、大连、三亚、丽江。
 
 ## 核心特性
 
+- **多智能体协同**：Supervisor 主管模式，3 个专业 Agent（意图分析、路线规划、解释生成）协同工作
 - **LLM 驱动**：使用小米 MiMo 大模型进行意图解析、路线规划和解释生成
+- **精美前端**：深色毛玻璃主题 Web 界面，实时展示 Agent 工作流、意图解析、路线卡片和推荐理由
 - **流式输出**：支持 SSE 流式响应，实时展示规划进度和解释内容
 - **商圈分片索引**：20 城市 × 150+ 热门商圈，用户提到"春熙路"会优先命中对应商圈 shard，检索更快更精准
-- **智能回退**：API 不可用时自动降级到规则引擎，保证系统可用
 - **多方案推荐**：每次生成 3 条差异化路线（综合最优、少排队优先、低预算优先）
 - **本地 POI 数据**：50 万条 POI 作为知识库，运行时主入口为 `SQLite + 城市/商圈/区县查询`
 - **自动识别链路**：城市、商圈、默认 alias、district、zone center 优先从 SQLite 读取，旧 manifest 和手写常量仅作为补丁层
@@ -21,15 +22,24 @@
 ```
 用户输入（自然语言）
     ↓
-[MiMo LLM] intent_parser.py  → 智能意图解析
+Web 前端 (static/index.html)
+    ↓ SSE 流式请求
+FastAPI 接口 (app.py)
     ↓
-poi_retriever.py              → 本地 POI 数据筛选
-    ↓
-[MiMo LLM] route_optimizer.py → 智能路线规划
-    ↓
-[MiMo LLM] explanation.py     → 自然语言解释生成
-    ↓
-[MiMo LLM] replanner.py       → 反馈理解 + 重新规划
+Supervisor 主管 Agent (core/agent.py)
+    ↓ 确定性路由（基于消息历史）
+    ├── IntentAgent (意图分析专家)
+    │   ├── parse_intent → 意图解析
+    │   ├── get_user_profile → 用户画像
+    │   └── list_supported_cities → 城市查询
+    │
+    ├── PlanningAgent (路线规划专家)
+    │   ├── retrieve_pois → POI 检索
+    │   ├── plan_routes → 路线规划
+    │   └── replan_routes → 路线重规划
+    │
+    └── ExplanationAgent (解释生成专家)
+        └── explain_routes → 路线解释生成
 ```
 
 ## 目录结构
@@ -40,6 +50,8 @@ rounter-main/
 ├── cli.py                            # 命令行测试工具
 ├── generate_poi_data.py              # 数据生成脚本（50万条 POI，生成 SQLite + JSON / 分片兼容产物）
 ├── .env.example                      # 环境变量配置示例
+├── static/
+│   └── index.html                    # Web 前端（深色毛玻璃主题，SSE 实时展示）
 ├── data/
 │   ├── poi_data_500k.db              # 运行时主数据源（SQLite）
 │   ├── poi_data_500k.json            # 兼容旧加载路径的单文件 JSON
@@ -52,6 +64,9 @@ rounter-main/
 │   │           └── districts/        # 区县级分片
 │   └── user_profiles.json            # 用户画像数据（6种类型）
 ├── core/
+│   ├── agent.py                      # Supervisor 多 Agent 编排（主管路由、子 Agent 调度）
+│   ├── sub_agents.py                 # 子 Agent 定义（IntentAgent、PlanningAgent、ExplanationAgent）
+│   ├── agent_tools.py                # LangChain 工具定义（按子 Agent 分组的 7 个 Tool）
 │   ├── mimo_client.py                # MiMo API 统一客户端（OpenAI/Anthropic 协议，支持流式）
 │   ├── intent_parser.py              # LLM 意图解析 + 规则回退
 │   ├── poi_artifact_store.py         # POI 分片 artifact loader（monolithic / partitioned）
@@ -335,6 +350,18 @@ python cli.py replan "想加一个适合拍照的点"
 python cli.py pois
 ```
 
+## Web 前端
+
+启动服务后浏览器打开 [http://127.0.0.1:8000](http://127.0.0.1:8000) 即可使用。
+
+功能：
+- 输入出行需求 + 选择用户画像，点击"开始规划"
+- 实时展示 Agent 工作流动画（IntentAgent → PlanningAgent → ExplanationAgent）
+- 意图卡片：城市、商圈、时段、预算、偏好标签
+- 3 张路线卡片：费用、交通时间、停留时间、途经点列表
+- 路线推荐理由（LLM 生成，打字机效果）
+- 二次规划：输入反馈后自动重新规划
+
 ## API 接口
 
 启动 FastAPI 服务：
@@ -384,6 +411,27 @@ curl -X POST http://127.0.0.1:8000/replan/stream \
   -d '{"user_id":"u001","previous_intent":{...},"feedback":"太贵了，控制在150以内"}'
 ```
 
+## Agent 架构
+
+系统采用 **Supervisor 多 Agent 协同架构**：
+
+1. **Supervisor 层** (`core/agent.py`)：主管 Agent，使用 LangGraph StateGraph 编排子 Agent，基于确定性路由（检查 ToolMessage 历史）按顺序调度子 Agent
+2. **子 Agent 层** (`core/sub_agents.py`)：3 个专业子 Agent，各自拥有独立工具和系统提示
+   - **IntentAgent**：意图分析专家，负责解析需求和获取用户画像
+   - **PlanningAgent**：路线规划专家，负责检索 POI 和规划路线
+   - **ExplanationAgent**：解释生成专家，负责生成路线友好解释
+3. **工具层** (`core/agent_tools.py`)：7 个 LangChain Tool，按子 Agent 分组
+4. **核心模块层** (`core/` 下各模块)：意图解析、POI 检索、路线优化、解释生成等
+
+### 依赖
+
+```
+langchain>=0.3.0
+langchain-openai>=0.2.0
+langchain-anthropic>=0.3.0
+langchain-core>=0.3.0
+```
+
 ## 运行测试
 
 ```bash
@@ -401,10 +449,12 @@ pytest tests/ -v
 
 ## 设计原则
 
-1. **LLM 优先**：核心流程优先使用 MiMo LLM 进行智能分析
-2. **优雅降级**：API 不可用时自动回退到规则引擎，保证系统可用
+1. **多 Agent 协同**：Supervisor 主管模式，3 个专业子 Agent 各司其职、协同完成任务
+2. **LLM 优先**：核心流程优先使用 MiMo LLM 进行智能分析
 3. **数据驱动**：本地 50 万条 POI 数据作为规划与召回的知识基础
 4. **结构化输出**：通过 prompt engineering 约束 LLM 输出 JSON，确保结果可解析
+5. **工具化封装**：核心模块以 LangChain Tool 形式暴露，Agent 可灵活组合调用
+6. **Supervisor 编排**：主管 Agent 基于确定性路由（检查 ToolMessage 历史）按顺序调度子 Agent，保证稳定可靠的执行流程
 
 ## 性能优化
 

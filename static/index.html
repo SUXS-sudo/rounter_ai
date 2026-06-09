@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiMo 智能路线规划</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0a1a;--bg2:#12122a;--glass:rgba(255,255,255,0.04);--glass2:rgba(255,255,255,0.08);
+  --border:rgba(255,255,255,0.08);--text:#e8e8f0;--text2:#a0a0c0;--text3:#666680;
+  --blue:#4f8cff;--purple:#a855f7;--cyan:#22d3ee;--green:#34d399;--orange:#fb923c;--pink:#f472b6;
+  --blue-glow:rgba(79,140,255,0.3);--purple-glow:rgba(168,85,247,0.3);--cyan-glow:rgba(34,211,238,0.3);
+  --radius:16px;--radius-sm:10px;
+}
+html{font-size:15px}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;
+  background:linear-gradient(135deg,#0a0a1a 0%,#12122a 40%,#1a1040 100%);
+}
+/* scrollbar */
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px}
+
+/* ===== layout ===== */
+.app{max-width:1200px;margin:0 auto;padding:24px 20px 60px}
+
+/* ===== header ===== */
+.header{text-align:center;padding:48px 0 36px;position:relative}
+.header h1{
+  font-size:2.4rem;font-weight:700;letter-spacing:-0.5px;
+  background:linear-gradient(135deg,var(--blue),var(--purple),var(--cyan));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.header p{color:var(--text2);margin-top:8px;font-size:0.95rem}
+.header .badge{
+  display:inline-block;margin-top:12px;padding:4px 14px;border-radius:20px;
+  background:var(--glass2);border:1px solid var(--border);color:var(--cyan);font-size:0.78rem
+}
+
+/* ===== input section ===== */
+.input-section{
+  background:var(--glass);border:1px solid var(--border);border-radius:var(--radius);
+  padding:28px;backdrop-filter:blur(20px);margin-bottom:32px;
+}
+.input-row{display:flex;gap:12px;align-items:stretch}
+.input-row textarea{
+  flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);
+  color:var(--text);padding:14px 16px;font-size:0.95rem;resize:none;outline:none;
+  font-family:inherit;transition:border-color .2s;min-height:56px;
+}
+.input-row textarea:focus{border-color:var(--blue)}
+.input-row textarea::placeholder{color:var(--text3)}
+.select-wrap{
+  position:relative;min-width:160px;
+}
+.select-wrap select{
+  width:100%;height:100%;background:var(--bg2);border:1px solid var(--border);
+  border-radius:var(--radius-sm);color:var(--text);padding:0 36px 0 14px;
+  font-size:0.9rem;outline:none;cursor:pointer;appearance:none;
+  font-family:inherit;transition:border-color .2s;
+}
+.select-wrap select:focus{border-color:var(--purple)}
+.select-wrap::after{
+  content:"";position:absolute;right:14px;top:50%;transform:translateY(-50%);
+  border:5px solid transparent;border-top:6px solid var(--text2);pointer-events:none;
+}
+.btn-plan{
+  background:linear-gradient(135deg,var(--blue),var(--purple));color:#fff;border:none;
+  border-radius:var(--radius-sm);padding:0 32px;font-size:0.95rem;font-weight:600;
+  cursor:pointer;transition:all .25s;white-space:nowrap;font-family:inherit;
+}
+.btn-plan:hover{transform:translateY(-1px);box-shadow:0 8px 24px var(--blue-glow)}
+.btn-plan:active{transform:translateY(0)}
+.btn-plan:disabled{opacity:0.5;cursor:not-allowed;transform:none;box-shadow:none}
+
+/* ===== agent workflow ===== */
+.workflow{
+  display:flex;align-items:center;justify-content:center;gap:0;
+  margin-bottom:32px;padding:20px 0;display:none;
+}
+.workflow.visible{display:flex}
+.agent-node{
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  padding:16px 24px;border-radius:var(--radius);border:1px solid var(--border);
+  background:var(--glass);backdrop-filter:blur(12px);transition:all .4s;position:relative;
+  min-width:160px;
+}
+.agent-node .icon{font-size:1.6rem;margin-bottom:2px}
+.agent-node .label{font-size:0.82rem;color:var(--text2);font-weight:500}
+.agent-node .status{font-size:0.72rem;color:var(--text3);min-height:16px;transition:color .3s}
+.agent-node.active{border-color:var(--blue);box-shadow:0 0 20px var(--blue-glow)}
+.agent-node.active .status{color:var(--blue)}
+.agent-node.done{border-color:var(--green);box-shadow:0 0 16px rgba(52,211,153,0.2)}
+.agent-node.done .status{color:var(--green)}
+.agent-node.intent{--ac:var(--blue);--ac-g:var(--blue-glow)}
+.agent-node.planning{--ac:var(--purple);--ac-g:var(--purple-glow)}
+.agent-node.explanation{--ac:var(--cyan);--ac-g:var(--cyan-glow)}
+.agent-node.intent.active{border-color:var(--blue);box-shadow:0 0 20px var(--blue-glow)}
+.agent-node.planning.active{border-color:var(--purple);box-shadow:0 0 20px var(--purple-glow)}
+.agent-node.explanation.active{border-color:var(--cyan);box-shadow:0 0 20px var(--cyan-glow)}
+.agent-node.intent.done{border-color:var(--blue);box-shadow:0 0 12px var(--blue-glow)}
+.agent-node.planning.done{border-color:var(--purple);box-shadow:0 0 12px var(--purple-glow)}
+.agent-node.explanation.done{border-color:var(--cyan);box-shadow:0 0 12px var(--cyan-glow)}
+.workflow-line{
+  width:60px;height:2px;background:var(--border);position:relative;overflow:hidden;
+  border-radius:1px;
+}
+.workflow-line .fill{
+  position:absolute;left:0;top:0;height:100%;width:0;border-radius:1px;
+  transition:width .6s ease;
+}
+.workflow-line.l1 .fill{background:linear-gradient(90deg,var(--blue),var(--purple))}
+.workflow-line.l2 .fill{background:linear-gradient(90deg,var(--purple),var(--cyan))}
+.workflow-line.active .fill{width:100%}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.agent-node.active .icon{animation:pulse 1.2s ease-in-out infinite}
+
+/* ===== sections ===== */
+.section{margin-bottom:28px;display:none}
+.section.visible{display:block}
+.section-title{
+  font-size:1.05rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px;
+}
+.section-title .dot{
+  width:8px;height:8px;border-radius:50%;display:inline-block;
+}
+
+/* ===== intent card ===== */
+.intent-card{
+  background:var(--glass);border:1px solid var(--border);border-radius:var(--radius);
+  padding:20px 24px;backdrop-filter:blur(12px);
+}
+.intent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.intent-item{display:flex;flex-direction:column;gap:2px}
+.intent-item .k{font-size:0.75rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px}
+.intent-item .v{font-size:0.95rem;color:var(--text);font-weight:500}
+.intent-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.intent-tags .tag{
+  padding:3px 10px;border-radius:12px;font-size:0.75rem;
+  background:rgba(79,140,255,0.12);color:var(--blue);border:1px solid rgba(79,140,255,0.2);
+}
+
+/* ===== route cards ===== */
+.routes-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:900px){.routes-grid{grid-template-columns:1fr}}
+.route-card{
+  background:var(--glass);border:1px solid var(--border);border-radius:var(--radius);
+  overflow:hidden;backdrop-filter:blur(12px);transition:all .3s;
+}
+.route-card:hover{transform:translateY(-3px);box-shadow:0 12px 40px rgba(0,0,0,0.3)}
+.route-header{
+  padding:16px 20px;border-bottom:1px solid var(--border);display:flex;
+  align-items:center;justify-content:space-between;
+}
+.route-label{font-weight:600;font-size:0.95rem;display:flex;align-items:center;gap:8px}
+.route-label .idx{
+  width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:0.72rem;font-weight:700;color:#fff;
+}
+.route-card:nth-child(1) .idx{background:linear-gradient(135deg,var(--blue),var(--purple))}
+.route-card:nth-child(2) .idx{background:linear-gradient(135deg,var(--orange),var(--pink))}
+.route-card:nth-child(3) .idx{background:linear-gradient(135deg,var(--green),var(--cyan))}
+.route-badge{
+  font-size:0.7rem;padding:3px 10px;border-radius:12px;font-weight:500;
+}
+.route-card:nth-child(1) .route-badge{background:rgba(79,140,255,0.12);color:var(--blue)}
+.route-card:nth-child(2) .route-badge{background:rgba(251,146,60,0.12);color:var(--orange)}
+.route-card:nth-child(3) .route-badge{background:rgba(52,211,153,0.12);color:var(--green)}
+.route-stats{
+  display:flex;gap:16px;padding:12px 20px;border-bottom:1px solid var(--border);
+  background:rgba(255,255,255,0.02);
+}
+.route-stat{display:flex;flex-direction:column;gap:1px}
+.route-stat .sv{font-size:0.9rem;font-weight:600;color:var(--text)}
+.route-stat .sk{font-size:0.68rem;color:var(--text3)}
+.route-stops{padding:12px 20px}
+.stop{
+  display:flex;gap:12px;padding:10px 0;position:relative;
+  border-bottom:1px solid rgba(255,255,255,0.03);
+}
+.stop:last-child{border-bottom:none}
+.stop-time{
+  min-width:52px;font-size:0.78rem;color:var(--text3);padding-top:2px;
+  font-variant-numeric:tabular-nums;
+}
+.stop-dot{
+  width:10px;height:10px;border-radius:50%;margin-top:5px;flex-shrink:0;
+  border:2px solid var(--purple);background:var(--bg);
+}
+.stop:nth-child(1) .stop-dot{border-color:var(--blue)}
+.stop-info{flex:1;min-width:0}
+.stop-name{font-size:0.88rem;font-weight:500;color:var(--text)}
+.stop-meta{font-size:0.75rem;color:var(--text2);margin-top:2px;display:flex;gap:10px;flex-wrap:wrap}
+.stop-meta .cat{
+  padding:1px 7px;border-radius:6px;font-size:0.68rem;
+  background:rgba(168,85,247,0.1);color:var(--purple);
+}
+.stop-meta .price{color:var(--orange)}
+.stop-meta .rating{color:var(--green)}
+.stop-reason{font-size:0.72rem;color:var(--text3);margin-top:3px;font-style:italic}
+.route-explanation{
+  padding:12px 20px;border-top:1px solid var(--border);font-size:0.82rem;
+  color:var(--text2);line-height:1.6;
+}
+
+/* ===== explanation ===== */
+.explanation-box{
+  background:var(--glass);border:1px solid var(--border);border-radius:var(--radius);
+  padding:24px;backdrop-filter:blur(12px);font-size:0.92rem;line-height:1.8;
+  color:var(--text2);min-height:80px;
+}
+.explanation-box .cursor{
+  display:inline-block;width:2px;height:1em;background:var(--cyan);
+  animation:blink .8s step-end infinite;vertical-align:text-bottom;margin-left:2px;
+}
+@keyframes blink{50%{opacity:0}}
+
+/* ===== replan ===== */
+.replan-section{
+  background:var(--glass);border:1px solid var(--border);border-radius:var(--radius);
+  padding:20px 24px;backdrop-filter:blur(12px);display:none;margin-bottom:28px;
+}
+.replan-section.visible{display:block}
+.replan-row{display:flex;gap:12px}
+.replan-row input{
+  flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);
+  color:var(--text);padding:12px 16px;font-size:0.9rem;outline:none;font-family:inherit;
+  transition:border-color .2s;
+}
+.replan-row input:focus{border-color:var(--cyan)}
+.replan-row input::placeholder{color:var(--text3)}
+.btn-replan{
+  background:linear-gradient(135deg,var(--cyan),var(--green));color:#000;border:none;
+  border-radius:var(--radius-sm);padding:0 24px;font-size:0.9rem;font-weight:600;
+  cursor:pointer;transition:all .25s;white-space:nowrap;font-family:inherit;
+}
+.btn-replan:hover{transform:translateY(-1px);box-shadow:0 8px 24px var(--cyan-glow)}
+.btn-replan:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+
+/* ===== stats ===== */
+.stats{
+  text-align:center;padding:16px;color:var(--text3);font-size:0.8rem;
+  display:none;
+}
+.stats.visible{display:block}
+.stats span{margin:0 12px}
+
+/* ===== error ===== */
+.error-msg{
+  background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);
+  border-radius:var(--radius-sm);padding:12px 16px;color:#f87171;
+  font-size:0.88rem;margin-bottom:16px;display:none;
+}
+.error-msg.visible{display:block}
+
+/* ===== loading dots ===== */
+.loading-dots::after{content:"";animation:dots 1.4s steps(4,end) infinite}
+@keyframes dots{
+  0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Header -->
+  <div class="header">
+    <h1>MiMo 智能路线规划</h1>
+    <p>Supervisor 多 Agent 协同 &middot; 意图分析 &rarr; 路线规划 &rarr; 解释生成</p>
+    <div class="badge">LangGraph Multi-Agent &middot; 20+ Cities &middot; 500K POI</div>
+  </div>
+
+  <!-- Input -->
+  <div class="input-section">
+    <div class="input-row">
+      <textarea id="queryInput" rows="2" placeholder="描述你的出行需求，例如：下午从春熙路出发，想吃火锅、拍照，不想排队，预算300，晚上9点前结束"></textarea>
+      <div class="select-wrap">
+        <select id="userSelect">
+          <option value="u001">u001 文艺慢逛型</option>
+          <option value="u002">u002 亲子轻松型</option>
+          <option value="u003">u003 拍照打卡型</option>
+          <option value="u004">u004 夜游朋友局</option>
+          <option value="u005">u005 本地美食优先</option>
+          <option value="u006">u006 文化家庭游</option>
+        </select>
+      </div>
+      <button class="btn-plan" id="planBtn" onclick="startPlan()">开始规划</button>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div class="error-msg" id="errorMsg"></div>
+
+  <!-- Agent Workflow -->
+  <div class="workflow" id="workflow">
+    <div class="agent-node intent" id="nodeIntent">
+      <div class="icon">&#x1F9E0;</div>
+      <div class="label">IntentAgent</div>
+      <div class="status" id="statusIntent">等待中...</div>
+    </div>
+    <div class="workflow-line l1" id="line1"><div class="fill"></div></div>
+    <div class="agent-node planning" id="nodePlanning">
+      <div class="icon">&#x1F5FA;</div>
+      <div class="label">PlanningAgent</div>
+      <div class="status" id="statusPlanning">等待中...</div>
+    </div>
+    <div class="workflow-line l2" id="line2"><div class="fill"></div></div>
+    <div class="agent-node explanation" id="nodeExplanation">
+      <div class="icon">&#x1F4AC;</div>
+      <div class="label">ExplanationAgent</div>
+      <div class="status" id="statusExplanation">等待中...</div>
+    </div>
+  </div>
+
+  <!-- Intent Section -->
+  <div class="section" id="intentSection">
+    <div class="section-title"><span class="dot" style="background:var(--blue)"></span>意图解析结果</div>
+    <div class="intent-card" id="intentCard"></div>
+  </div>
+
+  <!-- Routes Section -->
+  <div class="section" id="routesSection">
+    <div class="section-title"><span class="dot" style="background:var(--purple)"></span>路线方案</div>
+    <div class="routes-grid" id="routesGrid"></div>
+  </div>
+
+  <!-- Explanation Section -->
+  <div class="section" id="explanationSection">
+    <div class="section-title"><span class="dot" style="background:var(--cyan)"></span>路线推荐理由</div>
+    <div class="explanation-box" id="explanationBox"></div>
+  </div>
+
+  <!-- Replan -->
+  <div class="replan-section" id="replanSection">
+    <div class="section-title" style="margin-bottom:12px"><span class="dot" style="background:var(--green)"></span>不满意？告诉我你的调整</div>
+    <div class="replan-row">
+      <input id="replanInput" placeholder="例如：太贵了控制在100以内 / 不要火锅换小吃 / 下雨了安排室内" />
+      <button class="btn-replan" id="replanBtn" onclick="startReplan()">重新规划</button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats" id="stats"></div>
+</div>
+
+<script>
+const API = window.location.origin;
+let currentIntent = null;
+let isProcessing = false;
+
+// ===== SSE helper =====
+function ssePost(url, body, onEvent) {
+  return new Promise((resolve, reject) => {
+    const ctrl = new AbortController();
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    }).then(res => {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      function pump() {
+        reader.read().then(({ done, value }) => {
+          if (done) { resolve(); return; }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+          let evtType = "";
+          for (const line of lines) {
+            if (line.startsWith("event: ")) evtType = line.slice(7).trim();
+            else if (line.startsWith("data: ")) {
+              try { onEvent(evtType, JSON.parse(line.slice(6))); } catch {}
+            }
+          }
+          pump();
+        }).catch(reject);
+      }
+      pump();
+    }).catch(reject);
+    ctrl.signal.addEventListener("abort", () => {});
+  });
+}
+
+// ===== UI helpers =====
+function show(id) { document.getElementById(id).classList.add("visible"); }
+function hide(id) { document.getElementById(id).classList.remove("visible"); }
+function showError(msg) {
+  const el = document.getElementById("errorMsg");
+  el.textContent = msg;
+  el.classList.add("visible");
+  setTimeout(() => el.classList.remove("visible"), 6000);
+}
+function setBtnLoading(btn, loading) {
+  btn.disabled = loading;
+  if (loading) btn.dataset.origText = btn.textContent;
+  btn.textContent = loading ? (btn.dataset.loadingText || "规划中...") : (btn.dataset.origText || btn.textContent);
+}
+
+// ===== Agent workflow =====
+function resetWorkflow() {
+  ["nodeIntent","nodePlanning","nodeExplanation"].forEach(id => {
+    document.getElementById(id).classList.remove("active","done");
+  });
+  ["statusIntent","statusPlanning","statusExplanation"].forEach(id => {
+    document.getElementById(id).textContent = "等待中...";
+  });
+  ["line1","line2"].forEach(id => {
+    document.getElementById(id).classList.remove("active");
+  });
+}
+function activateNode(name) {
+  const map = { intent: "nodeIntent", planning: "nodePlanning", explanation: "nodeExplanation" };
+  const statusMap = { intent: "statusIntent", planning: "statusPlanning", explanation: "statusExplanation" };
+  const node = document.getElementById(map[name]);
+  if (!node) return;
+  node.classList.add("active");
+  document.getElementById(statusMap[name]).textContent = "处理中...";
+}
+function doneNode(name) {
+  const map = { intent: "nodeIntent", planning: "nodePlanning", explanation: "nodeExplanation" };
+  const statusMap = { intent: "statusIntent", planning: "statusPlanning", explanation: "statusExplanation" };
+  const node = document.getElementById(map[name]);
+  if (!node) return;
+  node.classList.remove("active");
+  node.classList.add("done");
+  document.getElementById(statusMap[name]).textContent = "完成";
+}
+function activateLine(idx) {
+  document.getElementById("line" + idx).classList.add("active");
+}
+
+// ===== Render intent =====
+function renderIntent(intent) {
+  if (!intent) return;
+  const el = document.getElementById("intentCard");
+  const fields = [];
+  if (intent.city) fields.push({ k: "城市", v: intent.city });
+  if (intent.zone) fields.push({ k: "商圈", v: intent.zone });
+  if (intent.start_location) fields.push({ k: "出发地", v: typeof intent.start_location === "object" ? intent.start_location.label || "定位点" : intent.start_location });
+  if (intent.time_preference) fields.push({ k: "时段", v: intent.time_preference });
+  if (intent.budget) fields.push({ k: "预算", v: "&yen;" + intent.budget });
+  if (intent.duration_minutes) fields.push({ k: "时长", v: intent.duration_minutes + " 分钟" });
+
+  let tags = [];
+  if (intent.required_tags) tags = tags.concat(intent.required_tags);
+  if (intent.preference_tags) tags = tags.concat(intent.preference_tags);
+
+  el.innerHTML =
+    '<div class="intent-grid">' + fields.map(f =>
+      '<div class="intent-item"><span class="k">' + f.k + '</span><span class="v">' + f.v + '</span></div>'
+    ).join("") + "</div>" +
+    (tags.length ? '<div class="intent-tags">' + tags.map(t => '<span class="tag">' + t + "</span>").join("") + "</div>" : "");
+  show("intentSection");
+}
+
+// ===== Render routes =====
+const LABELS = ["综合最优", "少排队优先", "低预算优先"];
+function renderRoutes(routes) {
+  console.log("[renderRoutes]", routes);
+  if (!routes || !routes.length) { console.log("[renderRoutes] empty, skipping"); return; }
+  const grid = document.getElementById("routesGrid");
+  grid.innerHTML = "";
+  routes.forEach((route, i) => {
+    const stops = route.stops || [];
+    const card = document.createElement("div");
+    card.className = "route-card";
+    const cost = route.estimated_cost || 0;
+    const travel = route.total_travel_minutes || 0;
+    const stay = route.total_stay_minutes || 0;
+    card.innerHTML =
+      '<div class="route-header">' +
+        '<div class="route-label"><span class="idx">' + (i+1) + '</span>' + (LABELS[i] || "路线 " + (i+1)) + '</div>' +
+        '<span class="route-badge">' + (LABELS[i] || "") + '</span>' +
+      '</div>' +
+      '<div class="route-stats">' +
+        '<div class="route-stat"><span class="sv">&yen;' + cost + '</span><span class="sk">预估费用</span></div>' +
+        '<div class="route-stat"><span class="sv">' + travel + 'min</span><span class="sk">交通时间</span></div>' +
+        '<div class="route-stat"><span class="sv">' + stay + 'min</span><span class="sk">停留时间</span></div>' +
+        '<div class="route-stat"><span class="sv">' + stops.length + '</span><span class="sk">途经点</span></div>' +
+      '</div>' +
+      '<div class="route-stops">' +
+        stops.map((s, si) => {
+          const p = s.poi || {};
+          return '<div class="stop">' +
+            '<div class="stop-time">' + (s.arrive_time || "--:--") + '</div>' +
+            '<div class="stop-dot"></div>' +
+            '<div class="stop-info">' +
+              '<div class="stop-name">' + (p.name || "未知地点") + '</div>' +
+              '<div class="stop-meta">' +
+                '<span class="cat">' + (p.category || "") + '</span>' +
+                (p.price ? '<span class="price">&yen;' + p.price + '/人</span>' : '') +
+                (p.rating ? '<span class="rating">&#9733; ' + p.rating + '</span>' : '') +
+                (s.travel_minutes_from_previous && si > 0 ? '<span>步行' + s.travel_minutes_from_previous + 'min</span>' : '') +
+              '</div>' +
+              (s.reason ? '<div class="stop-reason">' + s.reason + '</div>' : '') +
+            '</div>' +
+          '</div>';
+        }).join("") +
+      '</div>';
+    grid.appendChild(card);
+  });
+  show("routesSection");
+}
+
+// ===== Typewriter explanation =====
+let typeTimer = null;
+function typeExplanation(text) {
+  if (typeTimer) clearInterval(typeTimer);
+  const box = document.getElementById("explanationBox");
+  box.innerHTML = '<span class="cursor"></span>';
+  show("explanationSection");
+  let i = 0;
+  typeTimer = setInterval(() => {
+    if (i < text.length) {
+      box.innerHTML = text.slice(0, i + 1) + '<span class="cursor"></span>';
+      i++;
+    } else {
+      clearInterval(typeTimer);
+      typeTimer = null;
+      box.innerHTML = text;
+    }
+  }, 18);
+}
+
+// ===== Start plan =====
+async function startPlan() {
+  const query = document.getElementById("queryInput").value.trim();
+  if (!query) { showError("请输入出行需求"); return; }
+  if (isProcessing) return;
+  isProcessing = true;
+
+  const userId = document.getElementById("userSelect").value;
+  const btn = document.getElementById("planBtn");
+  setBtnLoading(btn, true);
+  document.getElementById("errorMsg").classList.remove("visible");
+
+  // Reset UI
+  ["intentSection","routesSection","explanationSection"].forEach(hide);
+  document.getElementById("explanationBox").innerHTML = "";
+  resetWorkflow();
+  show("workflow");
+  hide("replanSection");
+  hide("stats");
+  currentIntent = null;
+
+  let activeAgent = "";
+
+  try {
+    await ssePost(API + "/plan/stream", { user_id: userId, query: query }, (type, data) => {
+      console.log("[SSE]", type, data);
+      if (type === "progress") {
+        const s = data.status || "";
+        if (s.includes("IntentAgent") || s.includes("意图")) {
+          if (activeAgent !== "intent") { activateNode("intent"); activeAgent = "intent"; }
+        } else if (s.includes("PlanningAgent") || s.includes("规划") || s.includes("检索")) {
+          if (activeAgent !== "planning") {
+            doneNode("intent"); activateLine(1); activateNode("planning"); activeAgent = "planning";
+          }
+        } else if (s.includes("ExplanationAgent") || s.includes("解释")) {
+          if (activeAgent !== "explanation") {
+            doneNode("planning"); activateLine(2); activateNode("explanation"); activeAgent = "explanation";
+          }
+        }
+      } else if (type === "intent") {
+        currentIntent = data;
+        renderIntent(data);
+        doneNode("intent");
+      } else if (type === "routes") {
+        renderRoutes(data);
+        doneNode("planning");
+      } else if (type === "explanation_chunk") {
+        activateNode("explanation");
+        if (data.text) typeExplanation(data.text);
+      } else if (type === "done") {
+        doneNode("explanation");
+        show("replanSection");
+        const statsEl = document.getElementById("stats");
+        statsEl.innerHTML =
+          '<span>耗时 ' + (data.elapsed || 0).toFixed(2) + 's</span>' +
+          (data.meta && data.meta.poi_count ? '<span>POI ' + data.meta.poi_count + '</span>' : '') +
+          (data.meta && data.meta.candidate_count ? '<span>候选 ' + data.meta.candidate_count + '</span>' : '') +
+          '<span>架构 Multi-Agent Supervisor</span>';
+        show("stats");
+      }
+    });
+  } catch (err) {
+    showError("请求失败: " + err.message);
+  } finally {
+    setBtnLoading(btn, false);
+    isProcessing = false;
+  }
+}
+
+// ===== Replan =====
+async function startReplan() {
+  const feedback = document.getElementById("replanInput").value.trim();
+  if (!feedback) { showError("请输入调整反馈"); return; }
+  if (!currentIntent) { showError("没有可调整的路线，请先规划"); return; }
+  if (isProcessing) return;
+  isProcessing = true;
+
+  const userId = document.getElementById("userSelect").value;
+  const btn = document.getElementById("replanBtn");
+  setBtnLoading(btn, true);
+  btn.dataset.loadingText = "重新规划中...";
+  document.getElementById("errorMsg").classList.remove("visible");
+
+  ["routesSection","explanationSection"].forEach(hide);
+  document.getElementById("explanationBox").innerHTML = "";
+  resetWorkflow();
+  activateNode("planning");
+
+  let activeAgent = "";
+
+  try {
+    await ssePost(API + "/replan/stream", {
+      user_id: userId,
+      previous_intent: currentIntent,
+      feedback: feedback,
+    }, (type, data) => {
+      if (type === "progress") {
+        const s = data.status || "";
+        if (s.includes("Planning") || s.includes("规划")) {
+          if (activeAgent !== "planning") { activateNode("planning"); activeAgent = "planning"; }
+        } else if (s.includes("Explanation") || s.includes("解释")) {
+          if (activeAgent !== "explanation") {
+            doneNode("planning"); activateLine(2); activateNode("explanation"); activeAgent = "explanation";
+          }
+        }
+      } else if (type === "intent") {
+        currentIntent = data;
+        renderIntent(data);
+      } else if (type === "routes") {
+        renderRoutes(data);
+        doneNode("planning");
+      } else if (type === "explanation_chunk") {
+        activateNode("explanation");
+        if (data.text) typeExplanation(data.text);
+      } else if (type === "done") {
+        doneNode("explanation");
+        const statsEl = document.getElementById("stats");
+        statsEl.innerHTML = '<span>耗时 ' + (data.elapsed || 0).toFixed(2) + 's</span><span>已重新规划</span>';
+        show("stats");
+      }
+    });
+  } catch (err) {
+    showError("重新规划失败: " + err.message);
+  } finally {
+    setBtnLoading(btn, false);
+    btn.dataset.origText = "重新规划";
+    isProcessing = false;
+  }
+}
+
+// Enter key support
+document.getElementById("queryInput").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); startPlan(); }
+});
+document.getElementById("replanInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); startReplan(); }
+});
+</script>
+</body>
+</html>
